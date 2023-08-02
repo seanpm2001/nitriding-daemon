@@ -40,15 +40,17 @@ const (
 	// https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave-concepts.html
 	parentCID = 3
 	// The following paths are handled by nitriding.
-	pathRoot        = "/enclave"
-	pathNonce       = "/enclave/nonce"
-	pathAttestation = "/enclave/attestation"
-	pathState       = "/enclave/state"
-	pathSync        = "/enclave/sync"
-	pathHash        = "/enclave/hash"
-	pathReady       = "/enclave/ready"
-	pathProfiling   = "/enclave/debug"
-	pathConfig      = "/enclave/config"
+	pathRoot            = "/enclave"
+	pathNonce           = "/enclave/nonce"
+	pathAttestation     = "/enclave/attestation"
+	pathState           = "/enclave/state"
+	pathSync            = "/enclave/sync"
+	pathHash            = "/enclave/hash"
+	pathReady           = "/enclave/ready"
+	pathProfiling       = "/enclave/debug"
+	pathConfig          = "/enclave/config"
+	pathApp             = "/enclave/app"
+	pathTransparencyLog = "/enclave/log"
 	// All other paths are handled by the enclave application's Web server if
 	// it exists.
 	pathProxy = "/*"
@@ -74,10 +76,13 @@ type Enclave struct {
 	nonceCache   *cache
 	keyMaterial  any
 	ready, stop  chan bool
+	loader       *appLoader
 }
 
 // Config represents the configuration of our enclave service.
 type Config struct {
+	Loader bool
+
 	// FQDN contains the fully qualified domain name that's set in the HTTPS
 	// certificate of the enclave's Web server, e.g. "example.com".  This field
 	// is required.
@@ -244,6 +249,7 @@ func NewEnclave(cfg *Config) (*Enclave, error) {
 	m.Get(pathRoot, rootHandler(e.cfg))
 	m.Post(pathSync, respSyncHandler(e))
 	m.Get(pathConfig, configHandler(e.cfg))
+	m.Get(pathTransparencyLog, transparencyLogHandler(e.loader.log))
 
 	// Register enclave-internal HTTP API.
 	m = e.privSrv.Handler.(*chi.Mux)
@@ -302,6 +308,17 @@ func (e *Enclave) Start() error {
 
 	if err = e.startWebServers(); err != nil {
 		return fmt.Errorf("%s: %w", errPrefix, err)
+	}
+
+	if e.cfg.Loader {
+		e.loader = newAppLoader(e, &appRetrieverWeb{})
+		go func() {
+			errChan := e.loader.runApp()
+			for err := range errChan {
+				elog.Printf("Loader encountered an error: %v", err)
+			}
+		}()
+		elog.Println("Started goroutine for application loader.")
 	}
 
 	return nil

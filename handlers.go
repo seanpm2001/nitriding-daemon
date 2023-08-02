@@ -225,3 +225,11 @@ func attestationHandler(useProfiling bool, hashes *AttestationHashes) http.Handl
 		fmt.Fprintln(w, b64Doc)
 	}
 }
+
+// transparencyLogHandler prints the transparency log of all previously-deployed
+// enclave applications in human-readable form.
+func transparencyLogHandler(log transparencyLog) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, log)
+	}
+}
